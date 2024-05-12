@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "OmnibusTypes.h"
 #include "Components/SphereComponent.h"
-#include "OmniDetectSphereComponent.generated.h"
+#include "OmniConnectorComponent.generated.h"
 
 class USplineComponent;
 class AOmniRoad;
@@ -13,12 +13,12 @@ class AOmniRoad;
  * 
  */
 UCLASS()
-class OMNIBUS_API UOmniDetectSphereComponent : public USphereComponent
+class OMNIBUS_API UOmniConnectorComponent : public USphereComponent
 {
 	GENERATED_BODY()
 
 public:
-	UOmniDetectSphereComponent();
+	UOmniConnectorComponent();
 
 protected:
 	virtual void BeginPlay() override;
@@ -54,21 +54,15 @@ public:
 	
 	FVector GetSplinePointInsideTangent();
 	FVector GetSplinePointInsideTangentNormal();
-	void    ChangeSplineTangentNormal(UOmniDetectSphereComponent* InTarget) const;
+	void    ChangeSplineTangentNormal(UOmniConnectorComponent* InTarget) const;
 
+	FVector GetSplinePointPos() const;
+	
 	/**
 	 * 현재 포인트가 시작 지점이면, 상대 탄젠트 방향 반전.
 	 * @return : 현 컴포넌트가 시작 스플라인 포인트라면 -1.0. 아니라면 1.0
 	 */
 	double GetStartPointTangentFactor() const;
-
-	/**
-	 * 오버랩된 컴포넌트 배열 반환. BeginPlay 이전에 사용.
-	 * @param TargetComponentClassFilter 찾고자하는 컴포넌트 클래스 유형
-	 * @return 오버랩 감지된 컴포넌트 배열
-	 */
-	TArray<UPrimitiveComponent*> GetOverlapComps(UClass* TargetComponentClassFilter);
-
 	
 	uint8  GetAccessPointIdx() const { return AccessPointIdx; };
 

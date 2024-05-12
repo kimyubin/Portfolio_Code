@@ -3,14 +3,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "OmniActor.h"
-#include "OmniDestinationBlock.generated.h"
+#include "Blueprint/UserWidget.h"
+#include "OmniUserWidget.generated.h"
 
 /**
  * 
  */
 UCLASS()
-class OMNIBUS_API AOmniDestinationBlock : public AOmniActor
+class OMNIBUS_API UOmniUserWidget : public UUserWidget
 {
 	GENERATED_BODY()
 	
