@@ -1,3 +1,0 @@
-## Citadel Forever
-
-### Defence Game
