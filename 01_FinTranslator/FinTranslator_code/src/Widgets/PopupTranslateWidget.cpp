@@ -1,6 +1,6 @@
-// SPDX-FileCopyrightText: Copyright (C) 2025 Kim Yubin. All rights reserved.
+﻿// SPDX-FileCopyrightText: Copyright (C) 2025 Kim Yubin. All rights reserved.
 
-#include "SimpleTranslatePopup.h"
+#include "PopupTranslateWidget.h"
 
 #ifdef _WIN32
 #include <qt_windows.h>
@@ -8,12 +8,14 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QBoxLayout>
+#include <QClipboard>
 #include <QFuturewatcher>
 #include <QGraphicsDropShadowEffect>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScreen>
+#include <QShortcut>
 #include <QSizeGrip>
 #include <QSvgWidget>
 #include <QtConcurrentRun>
@@ -25,10 +27,11 @@
 
 #include "Managers/ConfigManager.h"
 
+#include "SubWidgets/FinToast.h"
 #include "SubWidgets/FinToolTip.h"
 #include "SubWidgets/LoadingBar.h"
 
-#include "Widgets/ui_SimpleTranslatePopup.h"
+#include "Widgets/ui_PopupTranslateWidget.h"
 
 constexpr QColor codeBgColor(29, 29, 29, 255);
 
@@ -38,9 +41,9 @@ const QString codeBgColorStr = QString::fromLatin1("rgba(%1,%2,%3,%4)")
                                .arg(codeBgColor.blue())
                                .arg(codeBgColor.alpha());
 
-SimpleTranslatePopup::SimpleTranslatePopup(QWidget* parent)
+PopupTranslateWidget::PopupTranslateWidget(QWidget* parent)
     : ITranslateWidget(parent, Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint)
-    , ui(new Ui::SimpleTranslatePopup)
+    , ui(new Ui::PopupTranslateWidget)
 {
     QIcon icon = QIcon(":/img/icon_img");
     setWindowIcon(icon);
@@ -57,12 +60,8 @@ SimpleTranslatePopup::SimpleTranslatePopup(QWidget* parent)
     setupUI();
 
     // 포커스 변경에 따른 그림자 on/off 제어. (그림자 성능)
-    connect(qApp, &QApplication::focusChanged, this, &SimpleTranslatePopup::detectFocusInOut);
+    connect(qApp, &QApplication::focusChanged, this, &PopupTranslateWidget::detectFocusInOut);
 
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    ui->bgFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    ui->resultText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    
     changePopupMode();
 
     // ~======================
@@ -70,63 +69,67 @@ SimpleTranslatePopup::SimpleTranslatePopup(QWidget* parent)
     _animation = new QPropertyAnimation(this, "textEditSize", this); // setTextEditSize 함수 연결
     _animation->setDuration(250);
     _animation->setEasingCurve(QEasingCurve::OutQuad);
-    connect(_animation, &QAbstractAnimation::finished, this, &SimpleTranslatePopup::adjustSizeAfterAnimationFinished);
-
+    connect(_animation, &QAbstractAnimation::finished, this, &PopupTranslateWidget::adjustSizeAfterAnimationFinished);
 
     calculateTextEditLayoutInfo();
-
-    showTranslationPopup("", TextStyle::PlainText);
 
     show();
     raise();
     activateWindow();
+
+    // resizeEvent 유도를 위해 show 이후에 호출
+    // animation start size 지정.
+    ui->resultText->setFixedSize(20, 20);
+    adjustSize();
+    showTranslationPopup("", TextStyle::PlainText);
 }
 
-SimpleTranslatePopup::~SimpleTranslatePopup()
+PopupTranslateWidget::~PopupTranslateWidget()
 {
     qApp->removeEventFilter(this);
 
     delete ui;
 }
 
-void SimpleTranslatePopup::completeTransText(const QString& inTranslatedText, const TextStyle inTextStyle)
+void PopupTranslateWidget::completeTransText(const QString& inTranslatedText, const TextStyle inTextStyle)
 {
     ITranslateWidget::completeTransText(inTranslatedText, inTextStyle);
     _loadingBar->stop();
 }
 
-void SimpleTranslatePopup::applyTranslation(const QString& inTranslatedText, const TextStyle inTextStyle)
+void PopupTranslateWidget::applyTranslation(const QString& inTranslatedText, const TextStyle inTextStyle)
 {
     showTranslationPopup(inTranslatedText, inTextStyle);
 }
 
-QScrollBar* SimpleTranslatePopup::getVerticalScrollBar()
+QScrollBar* PopupTranslateWidget::getVerticalScrollBar()
 {
     return ui->resultText->verticalScrollBar();
 }
 
-QScrollBar* SimpleTranslatePopup::getHorizontalScrollBar()
+QScrollBar* PopupTranslateWidget::getHorizontalScrollBar()
 {
     return ui->resultText->horizontalScrollBar();
 }
 
-QTextCursor SimpleTranslatePopup::getTextCursor()
+QTextCursor PopupTranslateWidget::getTextCursor()
 {
     return ui->resultText->textCursor();
 }
 
-void SimpleTranslatePopup::setTextCursor(const QTextCursor& cursor)
+void PopupTranslateWidget::setTextCursor(const QTextCursor& cursor)
 {
     ui->resultText->setTextCursor(cursor);
 }
 
 
-void SimpleTranslatePopup::showTranslationPopup(const QString& inTranslatedText, const TextStyle inTextStyle)
+void PopupTranslateWidget::showTranslationPopup(const QString& inTranslatedText, const TextStyle inTextStyle)
 {
+    _translatedText = inTranslatedText;
     if ((_prevSize.width() < _maxEditSize.width())
         || (_prevSize.height() < _maxEditSize.height()))
     {
-        const QSize newSize = calculateTextEditSize(inTranslatedText);
+        const QSize newSize = calculateTextEditSize(_translatedText);
         animateTextEditResize(newSize);
     }
 
@@ -135,14 +138,14 @@ void SimpleTranslatePopup::showTranslationPopup(const QString& inTranslatedText,
     case TextStyle::None:
         break;
     case TextStyle::PlainText:
-        ui->resultText->setText(inTranslatedText);
+        ui->resultText->setText(_translatedText);
         break;
     case TextStyle::Html:
-        ui->resultText->setHtml(inTranslatedText);
+        ui->resultText->setHtml(_translatedText);
         break;
     case TextStyle::MarkDown:
     {
-        setMarkdown(inTranslatedText);
+        setMarkdown(_translatedText);
         break;
     }
     case TextStyle::Size:
@@ -177,7 +180,7 @@ void SimpleTranslatePopup::showTranslationPopup(const QString& inTranslatedText,
     }
 }
 
-void SimpleTranslatePopup::setMarkdown(const QString& inMarkdownStr)
+void PopupTranslateWidget::setMarkdown(const QString& inMarkdownStr)
 {
     QTextDocument* doc = ui->resultText->document();
 
@@ -203,10 +206,10 @@ void SimpleTranslatePopup::setMarkdown(const QString& inMarkdownStr)
     }
     codeFontFamilies += ";";
 
-    const QRegularExpression mdLinkPattern(R"(\[([^\]]+)\]\(([^)]+)\))");
+    static const QRegularExpression mdLinkPattern(R"(\[([^\]]+)\]\(([^)]+)\))");
 
     // 문단 코드
-    const QRegularExpression codeQuotingPattern("```(.*?)```", QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression codeQuotingPattern("```(.*?)```", QRegularExpression::DotMatchesEverythingOption);
     QRegularExpressionMatchIterator it = codeQuotingPattern.globalMatch(md);
     while (it.hasNext())
     {
@@ -225,7 +228,7 @@ void SimpleTranslatePopup::setMarkdown(const QString& inMarkdownStr)
     }
 
     // 단어 코드 스니펫
-    const QRegularExpression codePattern("`(.*?)`", QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression codePattern("`(.*?)`", QRegularExpression::DotMatchesEverythingOption);
     it = codePattern.globalMatch(inMarkdownStr);
     while (it.hasNext())
     {
@@ -247,16 +250,11 @@ void SimpleTranslatePopup::setMarkdown(const QString& inMarkdownStr)
 
 }
 
-void SimpleTranslatePopup::setTextEditSize(const QSize& inTextEditSize)
+void PopupTranslateWidget::setTextEditSize(const QSize& inTextEditSize)
 {
-    // size
-    const QSize bgFrameSize = inTextEditSize + _innerMarginSize;
-    const QSize widgetSize  = bgFrameSize + _outerMarginSize;
-
     // text edit 폭 줄어드는 현상 방지.
     ui->resultText->setFixedSize(inTextEditSize);
-    ui->bgFrame->setFixedSize(bgFrameSize);
-    setFixedSize(widgetSize);
+    adjustSize();
 
     // 생성될 스크린 위치 추적
     QPointF screenTopLeft  = QPointF();
@@ -287,7 +285,7 @@ void SimpleTranslatePopup::setTextEditSize(const QSize& inTextEditSize)
     const QPoint recCenter    = rect().center();
 
     QPoint targetPos = targetCenter - recCenter;
-    targetPos.rx() = qMin(targetPos.x(), static_cast<int>(screenSize.width() - widgetSize.width()));
+    targetPos.rx() = qMin(targetPos.x(), static_cast<int>(screenSize.width() - size().width()));
     targetPos.ry() = qMax(targetPos.y(), static_cast<int>(screenSize.height()* _yPosMaxRatio));
     
     move(targetPos);
@@ -295,7 +293,7 @@ void SimpleTranslatePopup::setTextEditSize(const QSize& inTextEditSize)
     update();
 }
 
-void SimpleTranslatePopup::manualSizeMode()
+void PopupTranslateWidget::manualSizeMode()
 {
     if (_bManualSizeMode)
     {
@@ -317,37 +315,21 @@ void SimpleTranslatePopup::manualSizeMode()
     ui->bgFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     ui->resultText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    const QSizeF screenSize = screen() ? screen()->size().toSizeF() : QSizeF(1920, 1080);
-
-    const QSize widgetMin = QSize(screenSize.width() * _minSizeRatio.width(), screenSize.height() * _minSizeRatio.height());
-    const QSize widgetMax = QSize(screenSize.width() * _fullSizeRatio.width(), screenSize.height() * _fullSizeRatio.height());
-
-    const QSize bgFrameMin = widgetMin - _outerMarginSize;
-    const QSize bgFrameMax = widgetMax - _outerMarginSize;
-
-    const QSize textMin = bgFrameMin - _innerMarginSize;
-    const QSize textMax = bgFrameMax - _innerMarginSize;
-
-    setMinimumSize(widgetMin);
-    setMaximumSize(widgetMax);
+    const QSize minSize = _minEditSize + _innerMarginSize + _outerMarginSize;
+    setMinimumSize(minSize);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-
-    ui->bgFrame->setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    ui->bgFrame->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    ui->resultText->setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    ui->resultText->setMinimumSize(10, 10);
     ui->resultText->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
 }
 
-void SimpleTranslatePopup::setupUI()
+void PopupTranslateWidget::setupUI()
 {
     ui->setupUi(this);
-
-    ui->bgFrame->setLayout(ui->mainLayout);
     setLayout(ui->outerLayout);
 
     // ~===========
     // bgFrame shadow
-    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect();
+    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(ui->bgFrame);
     shadow->setBlurRadius(12);
     shadow->setOffset(0.5);
     shadow->setColor(QColor(0, 0, 0, 255));
@@ -389,7 +371,7 @@ void SimpleTranslatePopup::setupUI()
     setupTitleButton(_AlwaysOnButton, Qt::AlignTop | Qt::AlignLeft);
 
     connect(_AlwaysOnButton, &QPushButton::toggled
-          , this, &SimpleTranslatePopup::onAlwaysOnToggle);
+          , this, &PopupTranslateWidget::onAlwaysOnToggle);
     FinTooltipFilter::setCheckableButtonToolTip(_AlwaysOnButton, tr("항상 위 켜기"), tr("항상 위 끄기"));
 
     // ~===========
@@ -402,7 +384,7 @@ void SimpleTranslatePopup::setupUI()
     setupTitleButton(_windowModeButton, Qt::AlignTop | Qt::AlignLeft);
 
     connect(_windowModeButton, &QPushButton::toggled
-          , this, &SimpleTranslatePopup::onWindowModeToggle);
+          , this, &PopupTranslateWidget::onWindowModeToggle);
     FinTooltipFilter::setCheckableButtonToolTip(_windowModeButton, tr("임시창을 일반창으로 승격"), tr("임시 창모드"));
 
 
@@ -420,7 +402,7 @@ void SimpleTranslatePopup::setupUI()
 
     setupTitleButton(_minimizedButton, Qt::AlignTop | Qt::AlignRight);
     FinTooltipFilter::setBubbleToolTip(_minimizedButton, tr("최소화"));
-    connect(_minimizedButton, &QPushButton::clicked, this, &SimpleTranslatePopup::onMinimized);
+    connect(_minimizedButton, &QPushButton::clicked, this, &PopupTranslateWidget::onMinimized);
 
     // ~===========
     // max button
@@ -433,7 +415,7 @@ void SimpleTranslatePopup::setupUI()
     _maxRestoreButton->setIcon(maxRestoreIcon);
 
     setupTitleButton(_maxRestoreButton, Qt::AlignTop | Qt::AlignRight);
-    connect(_maxRestoreButton, &QPushButton::toggled, this, &SimpleTranslatePopup::onMaxNormalToggle);
+    connect(_maxRestoreButton, &QPushButton::toggled, this, &PopupTranslateWidget::onMaxNormalToggle);
     FinTooltipFilter::setCheckableButtonToolTip(_maxRestoreButton, tr("최대화"), tr("이전 크기로 복원"));
 
     // ~===========
@@ -452,21 +434,54 @@ void SimpleTranslatePopup::setupUI()
     // ~===========
 
     // ~===========
-    // bottom grip
+    // bottom statusLayout
+    ui->statusLayout->setContentsMargins(5, 0, 5, 5);
+
+    // ~===========
+    // 복사 버튼 
+    QPushButton* trCopy = new QPushButton(this);
+    trCopy->setIcon(QIcon(":/img/copy_img"));
+    trCopy->setShortcut(Qt::Key_C);
+    trCopy->setFocusPolicy(Qt::TabFocus);
+    FinTooltipFilter::setBubbleToolTip(trCopy, tr("번역 복사(<u>C<\\u>)"));
+    connect(trCopy, &QPushButton::clicked, this, [this, trCopy]()
+    {
+        QMetaObject::Connection connection = connect(QApplication::clipboard(), &QClipboard::dataChanged, trCopy, [trCopy]() mutable
+        {
+            FinToast::popToastOnWidget(tr("복사 완료!"), trCopy, 50);
+        }, Qt::SingleShotConnection);
+
+        // 연결 대기 시간 제한.
+        // 비어있는 복사와 무제한 대기를 방지합니다.
+        QTimer::singleShot(500, this, [connection]()
+        {
+            disconnect(connection);
+        });
+
+        QGuiApplication::clipboard()->setText(_translatedText);
+    });
+
+    ui->statusLayout->addWidget(trCopy, 0, 0, Qt::AlignBottom | Qt::AlignLeft);
+
+
+    // ~===========
+    // sizeGrip
     _sizeGrip = new QSizeGrip(this);
-    ui->statusLayout->addWidget(_sizeGrip, 0, 1, Qt::AlignBottom | Qt::AlignRight);
-    ui->statusLayout->setContentsMargins(0, 0, 4, 4);
     _sizeGrip->show();
     _sizeGrip->installEventFilter(this);
 
+    ui->statusLayout->addWidget(_sizeGrip, 0, 1, Qt::AlignBottom | Qt::AlignRight);
 
+
+    // ~===========
+    // _loadingBar
     _loadingBar = new LoadingBar(":/img/wait_anim_img", this);
     ui->loadingLayout->addWidget(_loadingBar, 0, 0);
     _loadingBar->run();
 
     // ~======================
     // resultText & scroll bar
-    ui->textLayout->setContentsMargins(20, 0, 10, 20);
+    ui->textLayout->setContentsMargins(20, 0, 10, 0);
 
     QFont font = ui->resultText->font();
     font.setPointSizeF(_fontSize);
@@ -518,7 +533,7 @@ void SimpleTranslatePopup::setupUI()
     _sizeGrip->setFocus();
 }
 
-QSize SimpleTranslatePopup::calculateTextEditSize(const QString& inNewText) const
+QSize PopupTranslateWidget::calculateTextEditSize(const QString& inNewText) const
 {
     const auto* textEdit = ui->resultText;
 
@@ -542,7 +557,7 @@ QSize SimpleTranslatePopup::calculateTextEditSize(const QString& inNewText) cons
     return QSize{newWidth, newHeight};
 }
 
-void SimpleTranslatePopup::animateTextEditResize(const QSize& inNewSize)
+void PopupTranslateWidget::animateTextEditResize(const QSize& inNewSize)
 {
     if (_prevSize == inNewSize)
     {
@@ -556,7 +571,7 @@ void SimpleTranslatePopup::animateTextEditResize(const QSize& inNewSize)
     _animation->start();
 }
 
-void SimpleTranslatePopup::adjustSizeAfterAnimationFinished()
+void PopupTranslateWidget::adjustSizeAfterAnimationFinished()
 {
     const int docHeight      = ui->resultText->document()->size().height();
     const int viewportHeight = ui->resultText->viewport()->height();
@@ -572,7 +587,7 @@ void SimpleTranslatePopup::adjustSizeAfterAnimationFinished()
     }
 }
 
-void SimpleTranslatePopup::calculateTextEditLayoutInfo()
+void PopupTranslateWidget::calculateTextEditLayoutInfo()
 {
     // ~==============================
     // 단계별 마진 및 최소/최대 크기 계산
@@ -581,7 +596,6 @@ void SimpleTranslatePopup::calculateTextEditLayoutInfo()
         qWarning() << "not detected screen";
     }
     const QSizeF screenSize  = screen() ? screen()->size().toSizeF() : QSizeF(1920, 1080);
-    const float minScreenLen = std::min(screenSize.width(), screenSize.height());
 
     const int minWidth  = screenSize.width() * _minSizeRatio.width();
     const int minHeight = screenSize.height() * _minSizeRatio.height();
@@ -609,7 +623,7 @@ void SimpleTranslatePopup::calculateTextEditLayoutInfo()
     _maxEditSize = {maxWidth - totalMarginSize.width(), maxHeight - totalMarginSize.height()};
 }
 
-void SimpleTranslatePopup::syncInOutScrollbar()
+void PopupTranslateWidget::syncInOutScrollbar()
 {
     const QScrollBar* textScroll = ui->resultText->verticalScrollBar();
 
@@ -630,7 +644,7 @@ void SimpleTranslatePopup::syncInOutScrollbar()
     }
 }
 
-void SimpleTranslatePopup::onAlwaysOnToggle(bool checked)
+void PopupTranslateWidget::onAlwaysOnToggle(bool checked)
 {
     if (_AlwaysOnButton->isChecked() != checked)
     {
@@ -657,7 +671,7 @@ void SimpleTranslatePopup::onAlwaysOnToggle(bool checked)
 #endif
 }
 
-void SimpleTranslatePopup::onWindowModeToggle(bool checked)
+void PopupTranslateWidget::onWindowModeToggle(bool checked)
 {
     if (checked)
     {
@@ -669,7 +683,7 @@ void SimpleTranslatePopup::onWindowModeToggle(bool checked)
     }
 }
 
-void SimpleTranslatePopup::changeNormalWindowMode()
+void PopupTranslateWidget::changeNormalWindowMode()
 {
     // 자동닫기 해제
     qApp->removeEventFilter(this);
@@ -696,7 +710,7 @@ void SimpleTranslatePopup::changeNormalWindowMode()
     }
 }
 
-void SimpleTranslatePopup::changePopupMode()
+void PopupTranslateWidget::changePopupMode()
 {
     // 팝업모드에서 자동 닫기 기능 등록
     qApp->installEventFilter(this);
@@ -709,12 +723,12 @@ void SimpleTranslatePopup::changePopupMode()
     }
 }
 
-void SimpleTranslatePopup::setMaxNormal(const bool bMaximize)
+void PopupTranslateWidget::setMaxNormal(const bool bMaximize)
 {
     _maxRestoreButton->setChecked(bMaximize);
 }
 
-void SimpleTranslatePopup::onMaxNormalToggle(const bool bMaximize)
+void PopupTranslateWidget::onMaxNormalToggle(const bool bMaximize)
 {
     if (_bMaximizedMode == bMaximize)
     {
@@ -740,19 +754,19 @@ void SimpleTranslatePopup::onMaxNormalToggle(const bool bMaximize)
     _bMaximizedMode = bMaximize;
 }
 
-void SimpleTranslatePopup::onMinimized()
+void PopupTranslateWidget::onMinimized()
 {
     manualSizeMode();
     changeNormalWindowMode();
     showMinimized();
 }
 
-void SimpleTranslatePopup::setShadowEffectEnabled(const bool bIsEnable)
+void PopupTranslateWidget::setShadowEffectEnabled(const bool bIsEnable)
 {
     ui->bgFrame->graphicsEffect()->setEnabled(bIsEnable);
 }
 
-void SimpleTranslatePopup::detectFocusInOut(QWidget* old, QWidget* now)
+void PopupTranslateWidget::detectFocusInOut(QWidget* old, QWidget* now)
 {
     if (Fin::isThis(this, old))
     {
@@ -772,7 +786,7 @@ void SimpleTranslatePopup::detectFocusInOut(QWidget* old, QWidget* now)
     }
 }
 
-void SimpleTranslatePopup::mousePressEvent(QMouseEvent* event)
+void PopupTranslateWidget::mousePressEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton)
     {
@@ -782,7 +796,7 @@ void SimpleTranslatePopup::mousePressEvent(QMouseEvent* event)
     }
 }
 
-void SimpleTranslatePopup::mouseDoubleClickEvent(QMouseEvent* event)
+void PopupTranslateWidget::mouseDoubleClickEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton)
     {
@@ -794,7 +808,7 @@ void SimpleTranslatePopup::mouseDoubleClickEvent(QMouseEvent* event)
     QWidget::mouseDoubleClickEvent(event);  
 }
 
-void SimpleTranslatePopup::mouseMoveEvent(QMouseEvent* event)
+void PopupTranslateWidget::mouseMoveEvent(QMouseEvent* event)
 {
     if (_bIsDrag && (event->button() | Qt::LeftButton))
     {
@@ -860,7 +874,7 @@ void SimpleTranslatePopup::mouseMoveEvent(QMouseEvent* event)
     }
 }
 
-void SimpleTranslatePopup::mouseReleaseEvent(QMouseEvent* event)
+void PopupTranslateWidget::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton)
     {
@@ -869,14 +883,14 @@ void SimpleTranslatePopup::mouseReleaseEvent(QMouseEvent* event)
     }
 }
 
-void SimpleTranslatePopup::enterEvent(QEnterEvent* event)
+void PopupTranslateWidget::enterEvent(QEnterEvent* event)
 {
     setShadowEffectEnabled(true);
 
     QWidget::enterEvent(event);
 }
 
-void SimpleTranslatePopup::leaveEvent(QEvent* event)
+void PopupTranslateWidget::leaveEvent(QEvent* event)
 {
     bool hasChildFocus = hasFocus();
 
@@ -901,7 +915,7 @@ void SimpleTranslatePopup::leaveEvent(QEvent* event)
     QWidget::leaveEvent(event);
 }
 
-bool SimpleTranslatePopup::eventFilter(QObject* obj, QEvent* event)
+bool PopupTranslateWidget::eventFilter(QObject* obj, QEvent* event)
 {
     // 팝업모드에서 자동 종료
     if (obj == qApp

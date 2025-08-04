@@ -1,7 +1,7 @@
 ﻿// SPDX-FileCopyrightText: Copyright (C) 2025 Kim Yubin. All rights reserved.
 
-#ifndef SIMPLETRANSLATEPOPUP_H
-#define SIMPLETRANSLATEPOPUP_H
+#ifndef POPUPTRANSLATEWIDGET_H
+#define POPUPTRANSLATEWIDGET_H
 
 #include <QWidget>
 
@@ -22,22 +22,22 @@ QT_BEGIN_NAMESPACE
 
 namespace Ui
 {
-class SimpleTranslatePopup;
+class PopupTranslateWidget;
 }
 
 QT_END_NAMESPACE
 
 
-class SimpleTranslatePopup : public ITranslateWidget
+class PopupTranslateWidget : public ITranslateWidget
 {
     Q_OBJECT
 
     Q_PROPERTY(QSize textEditSize READ getTextEditSize WRITE setTextEditSize)
 
 public:
-    explicit SimpleTranslatePopup(QWidget* parent = nullptr);
+    explicit PopupTranslateWidget(QWidget* parent = nullptr);
 
-    ~SimpleTranslatePopup() override;
+    ~PopupTranslateWidget() override;
 
     virtual void completeTransText(const QString& inTranslatedText, const TextStyle inTextStyle) override;
 
@@ -112,6 +112,7 @@ protected:
 
     virtual bool eventFilter(QObject* obj, QEvent* event) override;
 
+    QString _translatedText;
     QPropertyAnimation* _animation;
 
     FinWidgetModeFlags _widgetModeFlags; 
@@ -150,7 +151,7 @@ protected:
     qreal _fontSize = 14.0f;
 
 private:
-    Ui::SimpleTranslatePopup* ui;
+    Ui::PopupTranslateWidget* ui;
 
     QPushButton* _AlwaysOnButton;
     QPushButton* _windowModeButton;
@@ -165,4 +166,4 @@ private:
 };
 
 
-#endif //SIMPLETRANSLATEPOPUP_H
+#endif //POPUPTRANSLATEWIDGET_H
